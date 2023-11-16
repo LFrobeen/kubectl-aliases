@@ -57,6 +57,14 @@ def main():
         ('sec', 'secret', ['g', 'd', 'rm'], None),
         ('no', 'nodes', ['g', 'd'], ['sys']),
         ('ns', 'namespaces', ['g', 'd', 'rm'], ['sys']),
+        
+        ('vs', 'virtualservices', ['g', 'd', 'rm'], None),
+        ('gw', 'gateways', ['g', 'd', 'rm'], None),
+        
+        ('pvc', 'persistentvolumeclaims', ['g', 'd', 'rm'], None),
+        ('pv', 'persistentvolumes', ['g', 'd', 'rm'], None),
+        
+        ('snap', 'volumesnapshot', ['g', 'd', 'rm'], None),
         ]
     res_types = [r[0] for r in res]
 
