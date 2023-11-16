@@ -117,8 +117,19 @@ def main():
             print(f.read())
 
     for cmd in out:
-        print(shellFormatting[shell].format(''.join([a[0] for a in cmd]),
-              ' '.join([a[1] for a in cmd])))
+        alias = ''.join([a[0] for a in cmd])
+        command = ' '.join([a[1] for a in cmd])
+        suffix = ''
+
+        if "oyaml" in alias:
+            suffix = " | yq"
+
+        if "ojson" in alias:
+            suffix = " | js"
+
+        print(f"unalias {alias} >/dev/null 2>/dev/null")
+        print(f"{alias}(){{ {command} $@ {suffix} }}")
+        # print(shellFormatting[shell].format(alias, command, suffix))
 
 
 def gen(parts):
