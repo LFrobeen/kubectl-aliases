@@ -20,17 +20,12 @@ import itertools
 import os.path
 import sys
 
-try:
-    xrange  # Python 2
-except NameError:
-    xrange = range  # Python 3
-
 
 def main():
     # (alias, full, allow_when_oneof, incompatible_with)
     cmds = [('k', 'kubectl', None, None)]
 
-    globs = [('sys', '--namespace=kube-system', None, ['sys'])]
+    globs = [('sys', '--namespace=kube-system', None, None)]
 
     ops = [
         ('a', 'apply --recursive -f', None, None),
@@ -44,8 +39,10 @@ def main():
         ('g', 'get', None, None),
         ('d', 'describe', None, None),
         ('rm', 'delete', None, None),
-        ('run', 'run --rm --restart=Never --image-pull-policy=IfNotPresent -i -t', None, None),
-        ]
+        ('run',
+         'run --rm --restart=Never --image-pull-policy=IfNotPresent -i -t',
+         None, None),
+    ]
 
     res = [
         ('po', 'pods', ['g', 'd', 'rm'], None),
@@ -57,33 +54,39 @@ def main():
         ('sec', 'secret', ['g', 'd', 'rm'], None),
         ('no', 'nodes', ['g', 'd'], ['sys']),
         ('ns', 'namespaces', ['g', 'd', 'rm'], ['sys']),
-        
+
         ('vs', 'virtualservices', ['g', 'd', 'rm'], None),
         ('gw', 'gateways', ['g', 'd', 'rm'], None),
-        
+
         ('pvc', 'persistentvolumeclaims', ['g', 'd', 'rm'], None),
         ('pv', 'persistentvolumes', ['g', 'd', 'rm'], None),
-        
+
         ('snap', 'volumesnapshot', ['g', 'd', 'rm'], None),
-        ]
+    ]
+
     res_types = [r[0] for r in res]
 
     args = [
-        ('oyaml', '-o=yaml', ['g'], ['owide', 'ojson', 'sl']),
-        ('owide', '-o=wide', ['g'], ['oyaml', 'ojson']),
-        ('ojson', '-o=json', ['g'], ['owide', 'oyaml', 'sl']),
+        ('oyq', '-o=yaml', ['g'], ['owide', 'sl', 'ojson', 'oyaml', 'ojq']),
+        ('ojq', '-o=json', ['g'], ['owide', 'sl', 'ojson', 'oyaml', 'oyq']),
+        ('oyaml', '-o=yaml', ['g'], ['owide', 'sl', 'ojson', 'oyq', 'ojq']),
+        ('owide', '-o=wide', ['g'], ['oyaml', 'ojson', 'ojq', 'oyq']),
+        ('ojson', '-o=json', ['g'], ['owide', 'sl', 'oyaml', 'oyq', 'ojq']),
         ('all', '--all-namespaces', ['g', 'd'], ['rm', 'f', 'no', 'sys']),
-        ('sl', '--show-labels', ['g'], ['oyaml', 'ojson'], None),
-        ('all', '--all', ['rm'], None), # caution: reusing the alias
-        ('w', '--watch', ['g'], ['oyaml', 'ojson', 'owide']),
-        ]
+        ('sl', '--show-labels', ['g'], ['oyaml', 'ojson', 'ojq', 'oyq']),
+        ('all', '--all', ['rm'], None),  # caution: reusing the alias
+        ('w', '--watch', ['g'], {}),
+    ]
 
     # these accept a value, so they need to be at the end and
     # mutually exclusive within each other.
-    positional_args = [('f', '--recursive -f', ['g', 'd', 'rm'], res_types + ['all'
-                       , 'l', 'sys']), ('l', '-l', ['g', 'd', 'rm'], ['f',
-                       'all']), ('n', '--namespace', ['g', 'd', 'rm',
-                       'lo', 'ex', 'pf'], ['ns', 'no', 'sys', 'all'])]
+    positional_args = [
+        ('f', '--recursive -f', ['g', 'd', 'rm'],
+         res_types + ['all', 'l', 'sys']),
+        ('l', '-l', ['g', 'd', 'rm'], ['f', 'all']),
+        ('n', '--namespace', ['g', 'd', 'rm', 'lo', 'ex', 'pf'],
+         ['ns', 'no', 'sys', 'all'])
+    ]
 
     # [(part, optional, take_exactly_one)]
     parts = [
@@ -93,18 +96,26 @@ def main():
         (res, True, True),
         (args, True, False),
         (positional_args, True, True),
-        ]
+    ]
 
-    shellFormatting = {
+    def lists_to_sets(p):
+        a, b, r, i = p
+        return (a, b,
+                set(r) if r is not None else None,
+                set(i) if i is not None else None)
+
+    parts = [([lists_to_sets(a) for a in p], o, e) for [p, o, e] in parts]
+
+    shell_formatting = {
         "bash": "alias {}='{}'",
         "zsh": "alias {}='{}'",
         "fish": "abbr --add {} \"{}\"",
     }
 
     shell = sys.argv[1] if len(sys.argv) > 1 else "bash"
-    if shell not in shellFormatting:
+    if shell not in shell_formatting:
         raise ValueError("Shell \"{}\" not supported. Options are {}"
-                        .format(shell, [key for key in shellFormatting]))
+                         .format(shell, [key for key in shell_formatting]))
 
     out = gen(parts)
 
@@ -116,20 +127,30 @@ def main():
         with open(header_path, 'r') as f:
             print(f.read())
 
+    seen_aliases = set()
+
     for cmd in out:
         alias = ''.join([a[0] for a in cmd])
         command = ' '.join([a[1] for a in cmd])
         suffix = ''
 
-        if "oyaml" in alias:
+        if alias in seen_aliases:
+            raise f"Duplicate alias {alias}"
+
+        seen_aliases.add(alias)
+
+        if "oyq" in alias:
             suffix = " | yq"
 
-        if "ojson" in alias:
-            suffix = " | js"
+        if "ojq" in alias:
+            suffix = " | jq"
 
-        print(f"unalias {alias} >/dev/null 2>/dev/null")
-        print(f"{alias}(){{ {command} $@ {suffix} }}")
-        # print(shellFormatting[shell].format(alias, command, suffix))
+        # print(f"unalias {alias} >/dev/null 2>/dev/null")
+
+        if suffix:
+            print(f"{alias}(){{ {command} $@ {suffix} }}")
+        else:
+            print(shell_formatting[shell].format(alias, command))
 
 
 def gen(parts):
@@ -154,55 +175,52 @@ def gen(parts):
             combos = new_combos
 
         new_out = []
-        for segment in combos:
+        for i, segment in enumerate(combos):
+            print(i, file=sys.stderr)
             for stuff in orig:
-                if is_valid(stuff + segment):
-                    new_out.append(stuff + segment)
+                new_command = stuff + segment
+                if is_valid(new_command):
+                    new_out.append(new_command)
         out = new_out
     return out
 
 
 def is_valid(cmd):
-    for i in xrange(0, len(cmd)):
+    return is_valid_requirements(cmd) and is_valid_incompatibilities(cmd)
 
+
+def is_valid_requirements(cmd):
+    parts = {c[0] for c in cmd}
+
+    for i in range(0, len(cmd)):
         # check at least one of requirements are in the cmd
         requirements = cmd[i][2]
-        if requirements:
-            found = False
-            for r in requirements:
-                for j in xrange(0, i):
-                    if cmd[j][0] == r:
-                        found = True
-                        break
-                if found:
-                    break
-            if not found:
-                return False
+        if requirements and len(parts & requirements) == 0:
+            return False
 
+    return True
+
+
+def is_valid_incompatibilities(cmd):
+    parts = {c[0] for c in cmd}
+
+    for i in range(0, len(cmd)):
         # check none of the incompatibilities are in the cmd
         incompatibilities = cmd[i][3]
-        if incompatibilities:
-            found = False
-            for inc in incompatibilities:
-                for j in xrange(0, i):
-                    if cmd[j][0] == inc:
-                        found = True
-                        break
-                if found:
-                    break
-            if found:
-                return False
+        if incompatibilities and len(parts & incompatibilities) > 0:
+            return False
 
     return True
 
 
 def combinations(a, n, include_0=True):
     l = []
-    for j in xrange(0, n + 1):
+    for j in range(0, n + 1):
         if not include_0 and j == 0:
             continue
         l += list(itertools.combinations(a, j))
-    return l
+
+    return [i for i in l if is_valid_incompatibilities(i)]
 
 
 def diff(a, b):
